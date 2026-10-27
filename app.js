@@ -1,104 +1,56 @@
-"use strict";
-
-const rupiah = new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0
+import express from "express";
+import helmet from "helmet";
+import { fileURLToPath } from "node:url";
+import { pool } from "./db/pool.js";
+import { HttpError } from "./lib/api.js";
+import penawaranRouter from "./routes/penawaran.js";
+import pesananRouter from "./routes/pesanan.js";
+import { catatRequest } from "./middleware/catat-request.js";
+import { routeTidakDitemukan } from "./middleware/not-found.js";
+import { tanganiError } from "./middleware/error-handler.js";
+const app = express();
+app.disable("x-powered-by");
+app.set("query parser", "simple");
+app.use(
+    helmet({
+        strictTransportSecurity: false,
+        contentSecurityPolicy: {
+            directives: { upgradeInsecureRequests: null },
+        },
+    }),
+);
+app.use(catatRequest);
+app.use("/api", (req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    if (["POST", "PUT"].includes(req.method) && !req.is("application/json")) {
+        return next(
+            new HttpError(
+                415,
+                "JSON_REQUIRED",
+                "Gunakan Content-Type application/json.",
+            ),
+        );
+    }
+    next();
 });
-
-document.addEventListener("DOMContentLoaded", () => {
-    siapkanKatalog();
-    siapkanValidasiPenawaran();
-});
-
-async function siapkanKatalog() {
-    const wadah = document.querySelector("#daftar-penawaran");
-    if (!wadah) return;
-
-
-const status = document.querySelector("#status-katalog");
-const inputCari = document.querySelector("#kata-kunci");
-const pilihKategori = document.querySelector("#filter-kategori");
-const keranjang = [];
-
-try {
-    const respons = await fetch("data/penawaran.json");
-    if (!respons.ok) throw new Error(`HTTP ${respons.status}`);
-    const penawaran = await respons.json();
-
-
-function perbaruiTampilan() {
-    const kata = inputCari.value.trim().toLowerCase();
-    const kategori = pilihKategori.value;
-    const hasil = penawaran.filter((item) => {
-        const cocokKata = `${item.nama} ${item.penyedia}` .toLowerCase().includes(kata);
-        const cocokKategori = kategori === "semua" || item.kategori === kategori;
-        return cocokKata && cocokKategori;
+app.use(express.json({ limit: "20kb" }));
+app.use(
+    express.static(fileURLToPath(new URL("../public/", import.meta.url))),
+);
+app.get("/api/health", async (req, res) => {
+    await pool.query("SELECT 1");
+    return res.json({
+        success: true,
+        data: {
+            status: "ok",
+            database: "connected",
+            waktu: new Date().toISOString(),
+        },
     });
-renderKartu(hasil,wadah,status,keranjang);
-}
-
-inputCari.addEventListener("input", perbaruiTampilan);
-pilihKategori.addEventListener("change", perbaruiTampilan);
-perbaruiTampilan();
-} catch (error) {
-    status.textContent = "Data gagal dimuat. Jalankan proyek melalui server lokal";
-    status.classList.add("error-message");
-    console.error("Gagal memuat penawaran:", error);
-}
-}
-
-function renderKartu(data, wadah, status, keranjang) {
-    wadah.replaceChildren();
-    status.textContent = `${data.length} penawaran ditemukan.`;
-    data.forEach((item) => {
-        const artikel = document.createElement("article");
-        artikel.className = "offer-card";
-        artikel.innerHTML = `
-        <div class="offer-card_visual" aria-hidden="true"></div>
-        <div class="offer-card_content">
-            <span class="badge">${item.labelKategori}</span>
-            <h3>${item.nama}</h3>
-            <p class="offer-card_meta">${item.penyedia} ${item.stok} ${item.satuan}</p>
-            <p class="offer-card_price"><del>${rupiah.format(item.hargaNormal)}</del>
-            <strong>${item.hargaPenawaran === 0 ? "Tanpa biaya" : rupiah.format(item.hargaPenawaran)}</strong></p>
-            <button class="button" type="button" data-id="${item.id}">Tambah</button>
-        </div>`;
-        artikel.querySelector("button").addEventListener("click", () =>
-        {keranjang.push(item);
-            perbaruiRingkasan(keranjang);
-        })
-        wadah.append(artikel);
-    });
-}
-
-function perbaruiRingkasan(keranjang){
-    const total = keranjang.reduce((jumlah, item) => jumlah + item.hargaPenawaran, 0);
-    document.querySelector("#jumlah-item").textContent = keranjang.length;
-    document.querySelector("#total-pesanan").textContent = rupiah.format(total);
-}
-
-function siapkanValidasiPenawaran() {
-    const form = document.querySelector("#form-penawaran");
-    if (!form) return;
-    const normal = form.querySelector("#harga-normal");
-    const penawaran = form.querySelector("#harga-pemulihan");
-
-function validasiHarga() {
-    const hargaNormal = Number(normal.value);
-    const hargaPenawaran = Number(penawaran.value);
-    penawaran.setCustomValidity(
-        hargaPenawaran > hargaNormal ? "Harga penawaran tidak boleh melebihi harga normal." : ""
-    );
-}
-
-normal.addEventListener("input", validasiHarga);
-penawaran.addEventListener("input", validasiHarga);
-form.addEventListener("submit", (event) => {
-    validasiHarga();
-if (!form.checkValidity()){
-    event.preventDefault();
-    form.reportValidity();
-}
 });
-}
+app.use("/api/auth", authRouter);
+app.use("/api/penawaran", penawaranRouter);
+app.use("/api/pesanan", pesananRouter);
+app.use(routeTidakDitemukan);
+app.use(tanganiError);
+export default app;
