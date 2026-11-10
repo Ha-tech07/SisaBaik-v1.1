@@ -155,7 +155,7 @@ try {
   const id = buat.body.data.id;
   assert.equal(buat.body.data.penyediaId, rina.pengguna.penyediaId);
   status(
-    await api(`/api/penawaran/${id}`, "PUT", payload, budi.accessToken),
+    await api(`/api/penawaran/${id}`, "PUT", { ...payload, versi: buat.body.data.versi }, budi.accessToken),
     404,
   );
   status(
@@ -240,7 +240,7 @@ try {
     await api(
       `/api/penawaran/${id}`,
       "PUT",
-      { ...payload, stok: 4, hargaPenawaran: 6000 },
+      { ...payload, stok: 4, hargaPenawaran: 6000, versi: (await api(`/api/penawaran/milik-saya/${id}`, "GET", undefined, rina.accessToken)).body.data.versi },
       rina.accessToken,
     ),
     200,
